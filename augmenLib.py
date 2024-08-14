@@ -69,14 +69,20 @@ def random_brightness(img_path, factor = random.uniform(0.5,1.2)):
   return new_img
 
 def adjust_contrast(img_path, contrast_factor = random.uniform(0.25,1.75)):
-  image = Image.open(img_path)
+    image = cv2.imread(img_path)
 
-  enhancer = ImageEnhance.Contrast(image)
-  image = enhancer.enhance(contrast_factor)
+    lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
 
-  adjusted_image = np.array(image)
+    l_channel, a_channel, b_channel = cv2.split(lab_image)
 
-  return adjusted_image
+    clahe = cv2.createCLAHE(clipLimit=contrast_factor, tileGridSize=(8, 8))
+    l_channel = clahe.apply(l_channel)
+
+    adjusted_lab_image = cv2.merge([l_channel, a_channel, b_channel])
+
+    adjusted_image = cv2.cvtColor(adjusted_lab_image, cv2.COLOR_LAB2BGR)
+
+    return adjusted_image
 
 def add_gaussian_noise(image_path, mean=random.uniform(0,10), std=random.uniform(5,25)):
     image = cv2.imread(image_path)
