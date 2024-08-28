@@ -2,9 +2,11 @@
 
 This project implements a data augmentation tool for neural networks. 
 
-Project setup on Windows/Mac/Linux:
+Project setup on Windows/Mac:
   1. install anaconda from official website: https://www.anaconda.com/
-  2. enter Anaconda Prompt
-  3. conda env create -f environment.yml
-  4. conda activate PY310
-  5. python app.py
+  2. enter Anaconda Navigation
+  3. click the button environments and click import
+  4. choose from project location "environment.yml" (if you use Macos, then choose environment_MAC.yml)
+  5. run environment (click green button with arrow) and choose "Open Terminal"
+  6. cd "path/to/project/directory"
+  7. python app.py
