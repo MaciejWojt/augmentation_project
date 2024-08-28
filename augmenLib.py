@@ -2,6 +2,20 @@ import cv2
 import random
 import numpy as np
 from PIL import Image, ImageEnhance
+import tensorflow as tf #type: ignore
+from tensorflow.keras import layers, models #type: ignore
+from tensorflow.keras.preprocessing.image import ImageDataGenerator, array_to_img, img_to_array, load_img #type: ignore
+import os
+from tqdm import tqdm #type: ignore
+import random
+
+def get_image_names(folder):
+    image_names = []
+    for filename in os.listdir(folder):
+        if filename.endswith('.jpg') or filename.endswith('.png'):
+            image_names.append(filename)
+    return image_names
+
 
 def random_crop(img_path, min_size=(100, 100), max_size=(500, 500)):
   img = cv2.imread(img_path)
@@ -137,3 +151,107 @@ def perspective_transform(img_path, points):
     dst = cv2.warpPerspective(img, M, (w, h))
 
     return dst
+
+def autoencoder(img_path, num_images):
+   # Sprawdzenie dostępności GPU
+  gpus = tf.config.experimental.list_physical_devices('GPU')
+  if gpus:
+      try:
+          tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
+          logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+          print(f"Number of Logical GPUs: {len(logical_gpus)}")
+      except RuntimeError as e:
+          print(e)
+  else:
+      print("No GPUs available. Training on CPU.")
+
+  # Ścieżka do katalogu z obrazami
+  data_dir = img_path
+
+  # Parametry generatora obrazów
+  train_datagen = ImageDataGenerator(rescale=1./255, validation_split=0.2)
+
+  # Generator treningowy
+  train_generator = train_datagen.flow_from_directory(
+      data_dir,
+      target_size=(128, 128),
+      batch_size=64,
+      class_mode='input',  # Użycie 'input', aby wejście i wyjście były takie same
+      subset='training',
+      shuffle=True)
+
+  # Generator walidacyjny
+  val_generator = train_datagen.flow_from_directory(
+      data_dir,
+      target_size=(128, 128),
+      batch_size=64,
+      class_mode='input',
+      subset='validation',
+      shuffle=False)
+
+  # Funkcja budująca autoenkoder
+  def build_autoencoder(input_shape):
+      # Encoder
+      encoder_input = layers.Input(shape=input_shape)
+      x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(encoder_input)
+      x = layers.MaxPooling2D((2, 2), padding='same')(x)
+      x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+      x = layers.MaxPooling2D((2, 2), padding='same')(x)
+      encoded = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+
+      # Decoder
+      x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(encoded)
+      x = layers.UpSampling2D((2, 2))(x)
+      x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(x)
+      x = layers.UpSampling2D((2, 2))(x)
+      decoded = layers.Conv2D(3, (3, 3), activation='sigmoid', padding='same')(x)
+
+      autoencoder = models.Model(encoder_input, decoded)
+      return autoencoder
+
+  # Trening autoenkodera
+  autoencoder = build_autoencoder((128, 128, 3))
+  autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
+
+  # Trenuj autoenkoder za pomocą model.fit(), dodając walidację
+  autoencoder.fit(
+      train_generator,
+      epochs=10,
+      validation_data=val_generator,
+      steps_per_epoch=len(train_generator),
+      validation_steps=len(val_generator)
+  )
+
+  # Generowanie obrazów
+  output_dir = data_dir
+
+  # Licznik przetworzonych obrazów
+  processed_images = 0
+
+  # Przetwarzanie obrazów
+  for i in tqdm(range(len(train_generator))):
+      batch = train_generator[i][0]
+      batch_size = batch.shape[0]
+
+      # Losowanie indeksów dla tej partii
+      if num_images - processed_images < batch_size:
+          indices_to_process = random.sample(range(batch_size), num_images - processed_images)
+      else:
+          indices_to_process = range(batch_size)
+      
+      print(f"Processing indices in batch {i}: {indices_to_process}")
+
+      for local_index in indices_to_process:
+          img = autoencoder.predict(batch[local_index:local_index+1])
+          img = np.squeeze(img)
+          img = (img * 255).astype(np.uint8)
+          img = array_to_img(img)
+          img.save(os.path.join(output_dir, f"generated_img_{i}_{local_index}.jpg"))
+          processed_images += 1
+
+          # Zakończ pętlę, gdy przetworzono 10 obrazów
+          if processed_images >= num_images:
+              break
+
+      if processed_images >= num_images:
+          break
